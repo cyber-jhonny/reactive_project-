@@ -1,0 +1,89 @@
+# Builds e executáveis compilados
+dist/
+dist_nova/
+build/
+build_nova/
+
+# Pastas de distribuição
+JARVIS-Desktop/
+
+
+# Ambientes virtuais
+.venv/
+.venv_voz/
+venv/
+env/
+
+# Chaves, senhas e variáveis privadas
+.env
+.env.*
+!.env.example
+
+# Cache Python
+__pycache__/
+*.py[cod]
+
+# Logs e arquivos temporários
+logs/
+*.log
+temp/
+tmp/
+
+# Bancos de dados e dados pessoais
+*.db
+*.sqlite
+*.sqlite3
+
+# Áudios gerados durante testes
+teste.wav
+resposta.wav
+resposta_jarvis.wav
+
+# Modelos pesados baixados
+*.gguf
+*.bin
+*.safetensors
+
+# Configurações locais
+config.local.json
+
+# Sistema operacional e IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+
+# Builds
+dist/
+dist_nova/
+build/
+build_nova/
+build_desktop/
+*.exe
+*.pkg
+*.pyz
+*.toc
+
+# Backups
+*backup*
+*.backup.*
+*.bak
+*.bak_*
+
+# Dados privados e temporários
+.env
+.env.*
+memoria.db
+*.log
+*.wav
+
+# Arquivos locais e backups adicionais
+config.json
+*pre_reparo*
+voz/pt_BR-faber-medium.onnx
+voz/pt_BR-faber-medium.onnx.json
+
+!.env.example
+
+!.env.example
