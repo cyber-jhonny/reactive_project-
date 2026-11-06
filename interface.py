@@ -30,10 +30,12 @@ from modulos.memoria import (
     renomear_conversa, excluir_conversa
 )
 from voz.falar import falar
+from modulos.conversa_ao_vivo import LiveVoiceWorker
+from modulos.interface_imagens import ImageGeneratorDialog
 
 
 # CONFIGURACAO
-DISPOSITIVO = 1
+DISPOSITIVO = 8
 FREQUENCIA = 44100
 FREQUENCIA_WHISPER = 16000
 
@@ -608,6 +610,9 @@ class MainWindow(QMainWindow):
 
         super().__init__()
 
+        self.live_worker = None
+        self._closing = False
+
         self.setWindowTitle("J.A.R.V.I.S. | Personal AI")
         self.resize(1380, 850)
         self.setMinimumSize(1050, 700)
@@ -876,6 +881,15 @@ class MainWindow(QMainWindow):
         topbar.addLayout(title_box)
         topbar.addStretch()
 
+        self.images_button = QPushButton("GERAR IMAGEM")
+        self.images_button.setToolTip(
+            "Abrir o gerador de imagens do JARVIS"
+        )
+        self.images_button.clicked.connect(
+            self.open_image_generator
+        )
+        topbar.addWidget(self.images_button)
+
         self.online_label = QLabel("● INICIALIZANDO")
         self.online_label.setObjectName("Status")
         topbar.addWidget(self.online_label)
@@ -1021,6 +1035,14 @@ class MainWindow(QMainWindow):
         chat_header.addLayout(chat_title_box)
         chat_header.addStretch()
 
+        self.live_button = QPushButton("CONVERSA AO VIVO")
+        self.live_button.setCheckable(True)
+        self.live_button.setToolTip(
+            "Iniciar ou encerrar conversa por voz em tempo real"
+        )
+        self.live_button.toggled.connect(self.toggle_live_mode)
+        chat_header.addWidget(self.live_button)
+
         self.mic_button = QPushButton("MICROFONE ATIVO")
         self.mic_button.setCheckable(True)
         self.mic_button.setChecked(True)
@@ -1057,12 +1079,12 @@ class MainWindow(QMainWindow):
         )
         self.input.returnPressed.connect(self.send_message)
 
-        send_button = QPushButton("ENVIAR")
-        send_button.setObjectName("SendButton")
-        send_button.clicked.connect(self.send_message)
+        self.send_button = QPushButton("ENVIAR")
+        self.send_button.setObjectName("SendButton")
+        self.send_button.clicked.connect(self.send_message)
 
         composer.addWidget(self.input, 1)
-        composer.addWidget(send_button)
+        composer.addWidget(self.send_button)
 
         chat_layout.addLayout(composer)
 
@@ -1337,6 +1359,92 @@ class MainWindow(QMainWindow):
         self.orb.set_state(text)
         self.update_indicators(text)
 
+    def toggle_live_mode(self, enabled):
+
+        if enabled:
+            if self.live_worker and self.live_worker.isRunning():
+                return
+
+            try:
+                self.worker.set_microphone(False)
+                self.mic_button.setEnabled(False)
+                self.input.setEnabled(False)
+                self.send_button.setEnabled(False)
+
+                self.live_button.setText("ENCERRAR CONVERSA AO VIVO")
+
+                self.live_worker = LiveVoiceWorker(
+                    conversation_id=self.current_conversation_id,
+                    input_device=DISPOSITIVO
+                )
+
+                self.live_worker.status.connect(self.update_status)
+                self.live_worker.transcription.connect(
+                    lambda text: self.add_message("VOCE", text)
+                )
+                self.live_worker.response.connect(
+                    lambda text: self.add_message("JARVIS", text)
+                )
+                self.live_worker.audio_level.connect(
+                    self.orb.set_audio_level
+                )
+                self.live_worker.error.connect(self.show_error)
+                self.live_worker.conversation_changed.connect(
+                    self.refresh_after_message
+                )
+                self.live_worker.finished.connect(
+                    self.live_worker_finished
+                )
+
+                self.live_worker.start()
+
+            except Exception as exc:
+                self.live_button.blockSignals(True)
+                self.live_button.setChecked(False)
+                self.live_button.blockSignals(False)
+                self.live_worker_finished()
+                self.show_error(str(exc))
+
+        else:
+            if self.live_worker and self.live_worker.isRunning():
+                self.live_button.setText("ENCERRANDO...")
+                self.live_button.setEnabled(False)
+                self.live_worker.stop()
+            else:
+                self.live_worker_finished()
+
+    def live_worker_finished(self):
+
+        self.live_worker = None
+
+        if self._closing:
+            return
+
+        self.live_button.blockSignals(True)
+        self.live_button.setChecked(False)
+        self.live_button.blockSignals(False)
+
+        self.live_button.setEnabled(True)
+        self.live_button.setText("CONVERSA AO VIVO")
+
+        self.mic_button.setEnabled(True)
+        self.input.setEnabled(True)
+        self.send_button.setEnabled(True)
+
+        self.worker.set_microphone(self.mic_button.isChecked())
+
+    def check_shutdown(self):
+
+        live_running = (
+            self.live_worker is not None
+            and self.live_worker.isRunning()
+        )
+
+        if self.worker.isRunning() or live_running:
+            QTimer.singleShot(100, self.check_shutdown)
+        else:
+            self.close()
+
     def toggle_microphone(self, checked):
 
         self.worker.set_microphone(checked)
@@ -1345,6 +1453,10 @@ class MainWindow(QMainWindow):
             self.mic_button.setText("MICROFONE ATIVO")
         else:
             self.mic_button.setText("MICROFONE PAUSADO")
+
+    def open_image_generator(self):
+        dialog = ImageGeneratorDialog(self)
+        dialog.exec()
 
     def send_message(self):
 
@@ -1416,12 +1528,16 @@ class MainWindow(QMainWindow):
 
         self.current_conversation_id = conversation_id
         self.worker.set_conversation(conversation_id)
+        if self.live_worker and self.live_worker.isRunning():
+            self.live_worker.set_conversation(conversation_id)
         self.load_conversation(conversation_id)
 
     def new_conversation(self):
         conversation_id = criar_conversa()
         self.current_conversation_id = conversation_id
         self.worker.set_conversation(conversation_id)
+        if self.live_worker and self.live_worker.isRunning():
+            self.live_worker.set_conversation(conversation_id)
         self.refresh_conversation_list(conversation_id)
         self.load_conversation(conversation_id)
 
@@ -1479,13 +1595,25 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
 
-        if self.worker.isRunning():
-            self.worker.stop()
+        live_running = (
+            self.live_worker is not None
+            and self.live_worker.isRunning()
+        )
+
+        if self.worker.isRunning() or live_running:
+            self._closing = True
+
+            if live_running:
+                self.live_worker.stop()
+
+            if self.worker.isRunning():
+                self.worker.stop()
+
             self.setWindowTitle(
                 "J.A.R.V.I.S. | Encerrando sistemas..."
             )
             event.ignore()
-            self.worker.finished.connect(self.close)
+            QTimer.singleShot(100, self.check_shutdown)
         else:
             event.accept()
 
